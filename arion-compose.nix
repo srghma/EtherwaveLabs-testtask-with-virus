@@ -1,57 +1,140 @@
-{ pkgs, ... }:
+{
+  # config,
+  # options,
+  pkgs,
+  ...
+}:
+let
+  userName = "x";
+  uid = 1001;
+
+  nushellAutoload = pkgs.callPackage ./nix/nushell-autoload.nix { };
+
+  sandboxPkgs = with pkgs; [
+    coreutils
+    bashInteractive
+    cacert
+    git
+    which
+    curl
+    jq
+
+    # Rust-based JS/TS tooling (replaces Prettier & ESLint)
+    biome
+    oxlint
+
+    # Shell & aesthetics
+    nushell
+    oh-my-posh
+    nushellAutoload
+
+    # Runtimes & Web3
+    nodejs_22
+    bun
+    foundry
+    postgresql # Provides psql inside the sandbox for manual DB queries
+  ];
+in
 {
   project.name = "web3-sandbox";
 
+  docker-compose.volumes = {
+    postgres-data = { };
+  };
+
+  # ---------------------------------------------------------------------------
+  # 1. PostgreSQL Database Service
+  # ---------------------------------------------------------------------------
+  services.postgres = {
+    service = {
+      image = "postgres:19rc1-alpine";
+      restart = "unless-stopped";
+
+      # Standard Drizzle local credentials
+      environment = {
+        POSTGRES_USER = "postgres";
+        POSTGRES_PASSWORD = "password";
+        POSTGRES_DB = "local";
+      };
+
+      # Expose to host so you can inspect DB via host GUI (DBeaver, TablePlus, etc.)
+      ports = [
+        "5432:5432"
+      ];
+
+      # Persist DB data inside local .cache folder (isolated)
+      volumes = [
+        "./.cache/postgres:/var/lib/postgresql/"
+      ];
+    };
+  };
+
+  # ---------------------------------------------------------------------------
+  # 2. Main Development Sandbox
+  # ---------------------------------------------------------------------------
   services.sandbox = {
+    nixos.useSystemd = false;
+    image.enableRecommendedContents = true;
+
+    nixos.configuration = {
+      users.users.${userName} = {
+        isNormalUser = true;
+        uid = uid;
+        group = userName;
+        home = "/home/${userName}";
+        shell = pkgs.nushell;
+      };
+      users.groups.${userName}.gid = uid;
+
+      environment.systemPackages = sandboxPkgs;
+    };
+
     service = {
       useHostStore = true;
-      command = [
-        "sleep"
-        "infinity"
-      ];
+      user = "${toString uid}:${toString uid}";
       working_dir = "/workspace";
+
+      defaultExec = [ "nu" ];
+
+      # # Starts the SvelteKit dev server automatically on container boot
+      # command = [
+      #   "bun"
+      #   "run"
+      #   "dev"
+      #   "--"
+      #   "--host"
+      #   "0.0.0.0"
+      #   "--port"
+      #   "3000"
+      # ];
+
+      depends_on = [
+        "postgres"
+      ];
+
+      tmpfs = [
+        "/tmp"
+      ];
+
       ports = [
         "3000:3000"
       ];
-      volumes = [
-        ".:/workspace"
-      ];
-      environment = {
-        PATH = "/workspace/node_modules/.bin:${
-          pkgs.lib.makeBinPath (
-            with pkgs;
-            [
-              bashInteractive
-              coreutils
-              cacert
-              git
-              nodejs_22
-              bun
-              which
-              curl
-              jq
-              foundry
-            ]
-          )
-        }:/bin:/usr/bin";
 
+      volumes = [
+        "./workspace:/workspace"
+        "./.cache/home:/home/${userName}"
+      ];
+
+      environment = {
+        HOME = "/home/${userName}";
+        TMPDIR = "/tmp";
+        PATH = "/workspace/node_modules/.bin:${pkgs.lib.makeBinPath sandboxPkgs}:/bin:/usr/bin";
         SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
         NODE_ENV = "development";
+
+        # Autoload Oh-My-Posh & dotfiles
+        NU_VENDOR_AUTOLOAD_DIR = "${nushellAutoload}/share/nushell/vendor/autoload";
       };
     };
-
-    image.enableRecommendedContents = true;
-    image.contents = with pkgs; [
-      bashInteractive
-      coreutils
-      cacert
-      git
-      nodejs_22
-      bun
-      which
-      curl
-      jq
-      foundry
-    ];
   };
 }
