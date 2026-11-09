@@ -1,0 +1,13 @@
+{
+  "name": "Web3 Sandbox",
+  "service": "sandbox",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "task.allowAutomaticTasks": "off"
+      }
+    }
+  }
+}
