@@ -97,16 +97,16 @@ in
       defaultExec = [ "nu" ];
 
       # # Starts the SvelteKit dev server automatically on container boot
-      # command = [
-      #   "bun"
-      #   "run"
-      #   "dev"
-      #   "--"
-      #   "--host"
-      #   "0.0.0.0"
-      #   "--port"
-      #   "3000"
-      # ];
+      command = [
+        "bun"
+        "run"
+        "dev"
+        "--"
+        "--host"
+        "0.0.0.0"
+        "--port"
+        "3000"
+      ];
 
       depends_on = [
         "postgres"
@@ -131,6 +131,15 @@ in
         PATH = "/workspace/node_modules/.bin:${pkgs.lib.makeBinPath sandboxPkgs}:/bin:/usr/bin";
         SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
         NODE_ENV = "development";
+
+        # # Standard XDG paths to keep tools out of /workspace
+        # XDG_CACHE_HOME = "/home/${userName}/.cache";
+        # XDG_CONFIG_HOME = "/home/${userName}/.config";
+        # XDG_DATA_HOME = "/home/${userName}/.local/share";
+        # XDG_STATE_HOME = "/home/${userName}/.local/state";
+        #
+        # # Force Oh-My-Posh to cache into ~/.cache/oh-my-posh
+        # OMP_CACHE_DIR = "/home/${userName}/.cache/oh-my-posh";
 
         # Autoload Oh-My-Posh & dotfiles
         NU_VENDOR_AUTOLOAD_DIR = "${nushellAutoload}/share/nushell/vendor/autoload";
