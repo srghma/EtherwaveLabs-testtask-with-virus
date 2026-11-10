@@ -19,60 +19,40 @@ let
     curl
     jq
 
-    # Rust-based JS/TS tooling (replaces Prettier & ESLint)
-    biome
-    oxlint
-
     # Shell & aesthetics
     nushell
     oh-my-posh
     nushellAutoload
 
-    # Runtimes & Web3
+    # Runtimes
     nodejs_22
-    bun
-    foundry
-    postgresql # Provides psql inside the sandbox for manual DB queries
   ];
 in
 {
   project.name = "web3-sandbox";
 
-  docker-compose.volumes = {
-    postgres-data = { };
-  };
-
   # ---------------------------------------------------------------------------
-  # 1. PostgreSQL Database Service
+  # 1. MongoDB Database Service
   # ---------------------------------------------------------------------------
-  services.postgres = {
+  services.mongo = {
     service = {
-      image = "postgres:19rc1-alpine";
+      image = "mongo:latest";
       restart = "unless-stopped";
 
-      # Standard Drizzle local credentials
-      environment = {
-        POSTGRES_USER = "postgres";
-        POSTGRES_PASSWORD = "password";
-        POSTGRES_DB = "local";
-      };
-
-      # Expose to host so you can inspect DB via host GUI (DBeaver, TablePlus, etc.)
       ports = [
-        "5432:5432"
+        "27017:27017"
       ];
 
-      # Persist DB data inside local .cache folder (isolated)
       volumes = [
-        "./.cache/postgres:/var/lib/postgresql/"
+        "./.cache/mongo:/data/db"
       ];
     };
   };
 
   # ---------------------------------------------------------------------------
-  # 2. Main Development Sandbox
+  # 2. Backend API Service (Express + Mongoose)
   # ---------------------------------------------------------------------------
-  services.sandbox = {
+  services.backend = {
     nixos.useSystemd = false;
     image.enableRecommendedContents = true;
 
@@ -92,24 +72,18 @@ in
     service = {
       useHostStore = true;
       user = "${toString uid}:${toString uid}";
-      working_dir = "/workspace";
+      working_dir = "/workspace/backend";
 
       defaultExec = [ "nu" ];
 
-      # # Starts the SvelteKit dev server automatically on container boot
       command = [
-        "bun"
+        "npm"
         "run"
         "dev"
-        "--"
-        "--host"
-        "0.0.0.0"
-        "--port"
-        "3000"
       ];
 
       depends_on = [
-        "postgres"
+        "mongo"
       ];
 
       tmpfs = [
@@ -117,7 +91,7 @@ in
       ];
 
       ports = [
-        "3000:3000"
+        "5000:5000"
       ];
 
       volumes = [
@@ -128,20 +102,75 @@ in
       environment = {
         HOME = "/home/${userName}";
         TMPDIR = "/tmp";
-        PATH = "/workspace/node_modules/.bin:${pkgs.lib.makeBinPath sandboxPkgs}:/bin:/usr/bin";
+        PATH = "/workspace/backend/node_modules/.bin:${pkgs.lib.makeBinPath sandboxPkgs}:/bin:/usr/bin";
+        SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+        NODE_ENV = "development";
+        PORT = "5000";
+        MONGO_URI = "mongodb://mongo:27017/crypto-tracker";
+        JWT_SECRET = "your-jwt-secret";
+
+        NU_VENDOR_AUTOLOAD_DIR = "${nushellAutoload}/share/nushell/vendor/autoload";
+      };
+    };
+  };
+
+  # ---------------------------------------------------------------------------
+  # 3. Frontend Service (Vite + React)
+  # ---------------------------------------------------------------------------
+  services.crypto = {
+    nixos.useSystemd = false;
+    image.enableRecommendedContents = true;
+
+    nixos.configuration = {
+      users.users.${userName} = {
+        isNormalUser = true;
+        uid = uid;
+        group = userName;
+        home = "/home/${userName}";
+        shell = pkgs.nushell;
+      };
+      users.groups.${userName}.gid = uid;
+
+      environment.systemPackages = sandboxPkgs;
+    };
+
+    service = {
+      useHostStore = true;
+      user = "${toString uid}:${toString uid}";
+      working_dir = "/workspace/crypto";
+
+      defaultExec = [ "nu" ];
+
+      command = [
+        "npm"
+        "run"
+        "dev"
+      ];
+
+      depends_on = [
+        "backend"
+      ];
+
+      tmpfs = [
+        "/tmp"
+      ];
+
+      ports = [
+        "5173:5173"
+      ];
+
+      volumes = [
+        "./workspace:/workspace"
+        "./.cache/home:/home/${userName}"
+      ];
+
+      environment = {
+        HOME = "/home/${userName}";
+        TMPDIR = "/tmp";
+        PATH = "/workspace/crypto/node_modules/.bin:${pkgs.lib.makeBinPath sandboxPkgs}:/bin:/usr/bin";
         SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
         NODE_ENV = "development";
 
-        # # Standard XDG paths to keep tools out of /workspace
-        # XDG_CACHE_HOME = "/home/${userName}/.cache";
-        # XDG_CONFIG_HOME = "/home/${userName}/.config";
-        # XDG_DATA_HOME = "/home/${userName}/.local/share";
-        # XDG_STATE_HOME = "/home/${userName}/.local/state";
-        #
-        # # Force Oh-My-Posh to cache into ~/.cache/oh-my-posh
-        # OMP_CACHE_DIR = "/home/${userName}/.cache/oh-my-posh";
-
-        # Autoload Oh-My-Posh & dotfiles
         NU_VENDOR_AUTOLOAD_DIR = "${nushellAutoload}/share/nushell/vendor/autoload";
       };
     };
